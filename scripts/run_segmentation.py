@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+import json
 from pathlib import Path
 import pandas as pd
 
@@ -11,8 +12,14 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 from src.features import load_mask, load_rgb_image
+from src.protocol import load_split, split_fingerprint
 from src.segmentation import (
     CHANNEL_COMBINATIONS,
+    KMEANS_INIT,
+    KMEANS_N_CLUSTERS,
+    KMEANS_PARAMETERS,
+    KMEANS_THREADS,
+    SELECTION_PATH,
     jaccard_index,
     segment_kmeans,
 )
@@ -36,12 +43,6 @@ SUMMARY_PATH = (
     OUTPUT_DIR
     / "jaccard_summary.csv"
 )
-RANDOM_STATE = 42
-N_CLUSTERS = 2
-N_INIT = 10
-MAX_ITER = 300
-TOL = 1e-4
-BORDER_FRACTION = 0.05
 
 
 def create_summary(
@@ -50,7 +51,7 @@ def create_summary(
     summary = (
         results
         .groupby(
-            "channels",
+            ["split", "channels"],
             as_index=False,
         )
         .agg(
@@ -92,7 +93,7 @@ def create_summary(
 
     summary = (
         summary
-        .sort_values("order")
+        .sort_values(["split", "order"])
         .drop(columns="order")
         .reset_index(drop=True)
     )
@@ -106,12 +107,10 @@ def main() -> int:
             f"Missing split file: {SPLIT_PATH}"
         )
 
-    split = pd.read_csv(
-        SPLIT_PATH
-    )
+    split = load_split()
 
     development = split[
-        split["split"] == "development"
+        split["split"].isin(["training", "validation"])
     ].copy()
 
     if development.empty:
@@ -173,11 +172,7 @@ def main() -> int:
             result = segment_kmeans(
                 rgb=rgb,
                 channels=channels,
-                random_state=RANDOM_STATE,
-                n_init=N_INIT,
-                max_iter=MAX_ITER,
-                tol=TOL,
-                border_fraction=BORDER_FRACTION,
+                **KMEANS_PARAMETERS,
             )
 
             jaccard = jaccard_index(
@@ -189,6 +184,7 @@ def main() -> int:
                 {
                     "image": sample.image,
                     "label": sample.label,
+                    "split": sample.split,
                     "channels": channels,
                     "jaccard": jaccard,
                     "tomato_cluster": (
@@ -243,6 +239,23 @@ def main() -> int:
         index=False,
     )
 
+    # idxmax chooses the first maximum in the documented channel order.
+    validation_summary = summary.loc[summary["split"] == "validation"]
+    best = validation_summary.loc[validation_summary["mean_jaccard"].idxmax()]
+    selection = {
+        "channels": str(best["channels"]),
+        "selection_partition": "validation",
+        "criterion": "maximum mean Jaccard; ties in R,G,B,RG,RB,GB,RGB order",
+        "mean_jaccard": float(best["mean_jaccard"]),
+        "n_clusters": KMEANS_N_CLUSTERS,
+        "init": KMEANS_INIT,
+        "threads": KMEANS_THREADS,
+        "parameters": KMEANS_PARAMETERS,
+        "split_sha256": split_fingerprint(),
+    }
+    SELECTION_PATH.write_text(json.dumps(selection, indent=2) + "\n", encoding="utf-8")
+    print(f"Selected on validation: {best['channels']}")
+
     print()
     print(
         "K-MEANS SEGMENTATION COMPLETE"
@@ -268,31 +281,31 @@ def main() -> int:
 
     print(
         f"Clusters:        "
-        f"{N_CLUSTERS}"
+        f"{KMEANS_N_CLUSTERS}"
     )
     print(
         "Initialization:  "
-        "k-means++"
+        f"{KMEANS_INIT}"
     )
     print(
         f"n_init:          "
-        f"{N_INIT}"
+        f"{KMEANS_PARAMETERS['n_init']}"
     )
     print(
         f"max_iter:        "
-        f"{MAX_ITER}"
+        f"{KMEANS_PARAMETERS['max_iter']}"
     )
     print(
         f"tol:             "
-        f"{TOL}"
+        f"{KMEANS_PARAMETERS['tol']}"
     )
     print(
         f"Seed:            "
-        f"{RANDOM_STATE}"
+        f"{KMEANS_PARAMETERS['random_state']}"
     )
     print(
         f"Border fraction: "
-        f"{BORDER_FRACTION}"
+        f"{KMEANS_PARAMETERS['border_fraction']}"
     )
 
     print()

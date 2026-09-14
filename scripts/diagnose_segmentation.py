@@ -10,8 +10,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from src.features import load_mask, load_rgb_image
+from src.protocol import load_split
 from src.segmentation import (
     CHANNEL_COMBINATIONS,
+    KMEANS_PARAMETERS,
     jaccard_index,
     segment_kmeans,
 )
@@ -31,11 +33,6 @@ SUMMARY_PATH = (
     OUTPUT_DIR
     / "cluster_selection_summary.csv"
 )
-RANDOM_STATE = 42
-N_INIT = 10
-MAX_ITER = 300
-TOL = 1e-4
-BORDER_FRACTION = 0.05
 
 
 def create_summary(
@@ -95,17 +92,15 @@ def create_summary(
 
 
 def main() -> int:
-    split = pd.read_csv(
-        SPLIT_PATH
-    )
+    split = load_split()
 
-    development = split[
-        split["split"] == "development"
+    training = split[
+        split["split"] == "training"
     ].copy()
 
-    if development.empty:
+    if training.empty:
         raise RuntimeError(
-            "No development samples found."
+            "No training samples found."
         )
 
     rows: list[
@@ -113,13 +108,13 @@ def main() -> int:
     ] = []
 
     total_runs = (
-        len(development)
+        len(training)
         * len(CHANNEL_COMBINATIONS)
     )
 
     run = 0
 
-    for sample in development.itertuples(
+    for sample in training.itertuples(
         index=False
     ):
         image_path = (
@@ -152,11 +147,7 @@ def main() -> int:
             result = segment_kmeans(
                 rgb=rgb,
                 channels=channels,
-                random_state=RANDOM_STATE,
-                n_init=N_INIT,
-                max_iter=MAX_ITER,
-                tol=TOL,
-                border_fraction=BORDER_FRACTION,
+                **KMEANS_PARAMETERS,
             )
 
             selected_mask = result.mask
@@ -195,6 +186,7 @@ def main() -> int:
                 {
                     "image": sample.image,
                     "label": sample.label,
+                    "split": sample.split,
                     "channels": channels,
                     "selected_jaccard": (
                         selected_jaccard
@@ -250,7 +242,7 @@ def main() -> int:
 
     print()
     print(
-        "CLUSTER SELECTION DIAGNOSTIC"
+        "CLUSTER SELECTION DIAGNOSTIC - TRAINING ONLY"
     )
     print(
         summary.to_string(

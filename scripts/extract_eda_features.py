@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.features import extract_color_statistics
+from src.protocol import load_split
 
 
 SPLIT_PATH = PROJECT_ROOT / "artifacts" / "split.csv"
@@ -16,15 +17,15 @@ OUTPUT_PATH = PROJECT_ROOT / "results" / "eda" / "tomato_features.csv"
 
 
 def main() -> int:
-    split = pd.read_csv(SPLIT_PATH)
-    development = split[split["split"] == "development"].copy()
+    split = load_split()
+    training = split[split["split"] == "training"].copy()
 
-    if development.empty:
-        raise RuntimeError("No development samples found.")
+    if training.empty:
+        raise RuntimeError("No training samples found.")
 
     rows: list[dict[str, object]] = []
 
-    for row in development.itertuples(index=False):
+    for row in training.itertuples(index=False):
         image_path = PROJECT_ROOT / row.image
         mask_path = PROJECT_ROOT / row.mask
 
@@ -38,6 +39,7 @@ def main() -> int:
                 "image": row.image,
                 "mask": row.mask,
                 "label": row.label,
+                "split": row.split,
                 **statistics,
             }
         )
@@ -49,7 +51,7 @@ def main() -> int:
 
     print("EDA FEATURES EXTRACTED")
     print(f"Samples: {len(output)}")
-    print(f"Features: {len(output.columns) - 3}")
+    print(f"Features: {len(output.columns) - 4}")
     print(f"Output: {OUTPUT_PATH.relative_to(PROJECT_ROOT)}")
 
     print()

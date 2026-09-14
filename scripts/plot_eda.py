@@ -1,10 +1,16 @@
 from __future__ import annotations
+import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.protocol import load_split, validate_partition_rows
+
 INPUT_PATH = PROJECT_ROOT / "results" / "eda" / "tomato_features.csv"
 FIGURES_DIR = PROJECT_ROOT / "results" / "eda" / "figures"
 TABLES_DIR = PROJECT_ROOT / "results" / "eda" / "tables"
@@ -261,6 +267,7 @@ def main() -> int:
         )
 
     df = pd.read_csv(INPUT_PATH)
+    validate_partition_rows(df, load_split(), ("training",))
     validate_input(df)
 
     FIGURES_DIR.mkdir(

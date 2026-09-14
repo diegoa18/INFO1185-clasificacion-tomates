@@ -9,7 +9,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.features import load_mask, load_rgb_image
-from src.segmentation import jaccard_index, segment_kmeans
+from src.segmentation import (
+    KMEANS_PARAMETERS,
+    jaccard_index,
+    load_selected_channels,
+    segment_kmeans,
+)
+from src.protocol import load_split, validate_partition_rows
 
 
 RESULTS_PATH = (
@@ -30,20 +36,15 @@ SUMMARY_PATH = (
     / "segmentation"
     / "representative_examples.csv"
 )
-CHANNELS = "RG"
-RANDOM_STATE = 42
-N_INIT = 10
-MAX_ITER = 300
-TOL = 1e-4
-BORDER_FRACTION = 0.05
 
 
 def select_representative_examples(
     results: pd.DataFrame,
 ) -> pd.DataFrame:
+    channels = load_selected_channels()
     channel_results = (
         results[
-            results["channels"] == CHANNELS
+            (results["channels"] == channels) & (results["split"] == "validation")
         ]
         .copy()
         .sort_values("jaccard")
@@ -52,7 +53,7 @@ def select_representative_examples(
 
     if channel_results.empty:
         raise RuntimeError(
-            f"No results found for channels {CHANNELS}."
+            f"No validation results found for channels {channels}."
         )
 
     worst = channel_results.iloc[0]
@@ -94,6 +95,7 @@ def plot_single_example(
     label: str,
     output_path: Path,
 ) -> float:
+    channels = load_selected_channels()
     rgb = load_rgb_image(
         image_path
     )
@@ -104,12 +106,8 @@ def plot_single_example(
 
     result = segment_kmeans(
         rgb=rgb,
-        channels=CHANNELS,
-        random_state=RANDOM_STATE,
-        n_init=N_INIT,
-        max_iter=MAX_ITER,
-        tol=TOL,
-        border_fraction=BORDER_FRACTION,
+        channels=channels,
+        **KMEANS_PARAMETERS,
     )
 
     reproduced_jaccard = jaccard_index(
@@ -161,7 +159,7 @@ def plot_single_example(
         vmax=1,
     )
     axes[2].set_title(
-        f"K-Means {CHANNELS}"
+        f"K-Means {channels}"
     )
 
     for axis in axes:
@@ -187,6 +185,7 @@ def plot_combined_examples(
     reproduced: dict[str, tuple],
     output_path: Path,
 ) -> None:
+    channels = load_selected_channels()
     order = [
         "best",
         "median",
@@ -251,14 +250,14 @@ def plot_combined_examples(
         )
 
         axes[row_index, 2].set_title(
-            f"K-Means {CHANNELS}"
+            f"K-Means {channels}"
         )
 
         for axis in axes[row_index]:
             axis.axis("off")
 
     fig.suptitle(
-        "Ejemplos representativos de segmentación con K-Means RG",
+        f"Segmentación K-Means {channels} — validation (selección)",
         fontsize=14,
     )
 
@@ -281,6 +280,11 @@ def main() -> int:
 
     results = pd.read_csv(
         RESULTS_PATH
+    )
+    channels = load_selected_channels()
+    validate_partition_rows(
+        results.loc[results["channels"] == channels],
+        load_split(), ("training", "validation"),
     )
 
     required_columns = {
@@ -342,7 +346,7 @@ def main() -> int:
 
         output_path = (
             OUTPUT_DIR
-            / f"rg_{row.example_type}.png"
+            / f"selected_{row.example_type}.png"
         )
 
         reproduced_jaccard = (
@@ -368,12 +372,8 @@ def main() -> int:
 
         segmentation = segment_kmeans(
             rgb=rgb,
-            channels=CHANNELS,
-            random_state=RANDOM_STATE,
-            n_init=N_INIT,
-            max_iter=MAX_ITER,
-            tol=TOL,
-            border_fraction=BORDER_FRACTION,
+            channels=channels,
+            **KMEANS_PARAMETERS,
         )
 
         reproduced[
@@ -392,7 +392,8 @@ def main() -> int:
                 ),
                 "image": row.image,
                 "label": row.label,
-                "channels": CHANNELS,
+                "channels": channels,
+                "split": "validation",
                 "jaccard": (
                     reproduced_jaccard
                 ),
@@ -406,7 +407,7 @@ def main() -> int:
         reproduced=reproduced,
         output_path=(
             OUTPUT_DIR
-            / "rg_representative_examples.png"
+            / "selected_representative_examples.png"
         ),
     )
 
@@ -443,25 +444,25 @@ def main() -> int:
     print(
         OUTPUT_DIR
         .relative_to(PROJECT_ROOT)
-        / "rg_best.png"
+        / "selected_best.png"
     )
 
     print(
         OUTPUT_DIR
         .relative_to(PROJECT_ROOT)
-        / "rg_median.png"
+        / "selected_median.png"
     )
 
     print(
         OUTPUT_DIR
         .relative_to(PROJECT_ROOT)
-        / "rg_worst.png"
+        / "selected_worst.png"
     )
 
     print(
         OUTPUT_DIR
         .relative_to(PROJECT_ROOT)
-        / "rg_representative_examples.png"
+        / "selected_representative_examples.png"
     )
     return 0
 

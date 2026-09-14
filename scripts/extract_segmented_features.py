@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -18,9 +19,12 @@ from src.features import (
     load_rgb_image,
 )
 from src.segmentation import (
+    KMEANS_PARAMETERS,
     jaccard_index,
     segment_kmeans,
+    load_selected_channels,
 )
+from src.protocol import load_split
 
 
 SPLIT_PATH = (
@@ -37,23 +41,22 @@ OUTPUT_PATH = (
     OUTPUT_DIR
     / "segmented_features.csv"
 )
-SEGMENTATION_CHANNELS = "RG"
-RANDOM_STATE = 42
-N_INIT = 10
-MAX_ITER = 300
-TOL = 1e-4
-BORDER_FRACTION = 0.05
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Extract frozen segmentation features.")
+    parser.add_argument("--include-test", action="store_true",
+                        help="Include test inference for the final frozen evaluation.")
+    args = parser.parse_args()
+    channels = load_selected_channels()
     if not SPLIT_PATH.is_file():
         raise FileNotFoundError(
             f"Missing split file: {SPLIT_PATH}"
         )
 
-    split = pd.read_csv(
-        SPLIT_PATH
-    )
+    split = load_split()
+    if not args.include_test:
+        split = split.loc[split["split"] != "test"].copy()
 
     required_columns = {
         "image",
@@ -111,12 +114,8 @@ def main() -> int:
 
         segmentation = segment_kmeans(
             rgb=rgb,
-            channels=SEGMENTATION_CHANNELS,
-            random_state=RANDOM_STATE,
-            n_init=N_INIT,
-            max_iter=MAX_ITER,
-            tol=TOL,
-            border_fraction=BORDER_FRACTION,
+            channels=channels,
+            **KMEANS_PARAMETERS,
         )
 
         predicted_mask = (
@@ -154,7 +153,7 @@ def main() -> int:
                 "label": sample.label,
                 "split": sample.split,
                 "segmentation_channels": (
-                    SEGMENTATION_CHANNELS
+                    channels
                 ),
                 "segmentation_jaccard": (
                     jaccard
@@ -224,9 +223,10 @@ def main() -> int:
     )
 
     print(
-        f"Development:  "
-        f"{(output['split'] == 'development').sum()}"
+        f"Training:     "
+        f"{(output['split'] == 'training').sum()}"
     )
+    print(f"Validation:   {(output['split'] == 'validation').sum()}")
 
     print(
         f"Test:         "
@@ -235,13 +235,13 @@ def main() -> int:
 
     print(
         f"Channels:     "
-        f"{SEGMENTATION_CHANNELS}"
+        f"{channels}"
     )
 
     print()
-    print("FEATURES")
+    print("FEATURES - TRAINING/VALIDATION ONLY")
     print(
-        output[
+        output.loc[output["split"] != "test",
             feature_columns
         ]
         .describe()
@@ -254,9 +254,9 @@ def main() -> int:
     )
 
     print()
-    print("SEGMENTATION QUALITY")
+    print("SEGMENTATION QUALITY - TRAINING/VALIDATION ONLY")
     print(
-        output.groupby(
+        output.loc[output["split"] != "test"].groupby(
             "split"
         )["segmentation_jaccard"]
         .agg(

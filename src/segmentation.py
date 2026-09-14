@@ -1,7 +1,36 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import numpy as np
 from sklearn.cluster import KMeans
+from threadpoolctl import threadpool_limits
+
+from src.protocol import PROJECT_ROOT, split_fingerprint
+
+KMEANS_N_CLUSTERS = 2
+KMEANS_INIT = "k-means++"
+KMEANS_THREADS = 1
+KMEANS_PARAMETERS = {
+    "random_state": 42,
+    "n_init": 10,
+    "max_iter": 300,
+    "tol": 1e-4,
+    "border_fraction": 0.05,
+}
+SELECTION_PATH = PROJECT_ROOT / "results" / "segmentation" / "selected_configuration.json"
+
+
+def load_selected_channels(path: Path = SELECTION_PATH) -> str:
+    selection = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        selection["split_sha256"] != split_fingerprint()
+        or selection["parameters"] != KMEANS_PARAMETERS
+        or selection["selection_partition"] != "validation"
+        or selection["channels"] not in CHANNEL_INDICES
+    ):
+        raise ValueError("Stale segmentation selection; rerun run_segmentation.py.")
+    return str(selection["channels"])
 
 
 CHANNEL_INDICES = {
@@ -132,11 +161,11 @@ def segment_kmeans(
     rgb: np.ndarray,
     channels: str,
     *,
-    random_state: int = 42,
-    n_init: int = 10,
-    max_iter: int = 300,
-    tol: float = 1e-4,
-    border_fraction: float = 0.05,
+    random_state: int = KMEANS_PARAMETERS["random_state"],
+    n_init: int = KMEANS_PARAMETERS["n_init"],
+    max_iter: int = KMEANS_PARAMETERS["max_iter"],
+    tol: float = KMEANS_PARAMETERS["tol"],
+    border_fraction: float = KMEANS_PARAMETERS["border_fraction"],
 ) -> SegmentationResult:
     if channels not in CHANNEL_INDICES:
         raise ValueError(
@@ -163,17 +192,17 @@ def segment_kmeans(
     )
 
     model = KMeans(
-        n_clusters=2,
-        init="k-means++",
+        n_clusters=KMEANS_N_CLUSTERS,
+        init=KMEANS_INIT,
         n_init=n_init,
         max_iter=max_iter,
         tol=tol,
         random_state=random_state,
     )
 
-    flat_labels = model.fit_predict(
-        pixels
-    )
+    # Fixed thread count avoids parallel reduction variability and oversubscription.
+    with threadpool_limits(limits=KMEANS_THREADS):
+        flat_labels = model.fit_predict(pixels)
 
     labels = flat_labels.reshape(
         height,
