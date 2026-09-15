@@ -355,7 +355,7 @@ the already-selected segmentation on test for final evaluation.
 
 ## SFS methodology
 
-The next experiment is:
+The SFS experiment is:
 
 `SFS + Gaussian Naive Bayes`
 
@@ -375,8 +375,16 @@ Use the corrected holdout protocol, without mandatory nested CV:
 
 Validation may serve both feature selection and threshold selection under
 the assignment, but its performance is selection performance, not an
-independent estimate. Test supplies the final comparison. SFS is not yet
-implemented; implement it only when the human requests that milestone.
+independent estimate. Test supplies the final comparison.
+
+`scripts/run_sfs.py` implements all six forward stages with candidates in
+R,G,B,H,S,V order. Each addition maximizes validation AUC; exact AUC ties
+follow that order. The final subset maximizes AUC over the full trajectory;
+ties select the smallest subset. There is no early stopping or refit on
+training plus validation. Use the existing prior-free score and Youden rule.
+Development artifacts are saved in `results/classification/bayes_sfs/`.
+Run `python3 scripts/verify_sfs.py` after SFS changes. Keep test hidden until
+PCA is implemented and all three pipelines are frozen.
 
 Never use test performance to alter SFS.
 

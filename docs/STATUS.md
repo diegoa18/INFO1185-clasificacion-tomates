@@ -1,12 +1,13 @@
 # Estado experimental
 
-Última actualización: 2026-09-14
+Última actualización: 2026-09-15
 
 ## Autoridad y milestone actual
 
 `docs/IA_2026_P1.pdf` es el enunciado oficial y prevalece sobre este estado.
 Se corrigió el protocolo experimental existente conforme a sus secciones
-2, 3.1–3.5 y 4. SFS y PCA siguen pendientes de implementación.
+2, 3.1–3.5 y 4. SFS está implementado y congelado en desarrollo;
+PCA sigue pendiente.
 
 ## Partición corregida y congelada
 
@@ -255,19 +256,75 @@ comandos anteriores. No se ha realizado staging, commit ni push.
   permaneció estable. Los reviewers hicieron revisión estática; las
   ejecuciones anteriores se realizaron en la sesión principal.
 
-## Siguiente milestone
+## SFS: metodología fijada antes de la selección
 
-**SFS + GaussianNB**, solo cuando se solicite. Usar candidatos R,G,B,H,S,V.
-Antes de evaluar candidatos, documentar métrica, parada y desempates.
-Ajustar cada candidato en training, seleccionar en validation y elegir
-Youden en validation para el modelo seleccionado. Congelar subconjunto,
-modelo de training y umbral. Registrar la trayectoria y comparar con R,G,S.
-No inspeccionar ni regenerar test durante este milestone. No se exige CV
-anidada en este protocolo holdout.
+**SFS + GaussianNB**, candidatos R,G,B,H,S,V, positivo ripe y
+`var_smoothing=1e-9`. Cada candidato se ajusta exclusivamente en training.
+La siguiente adición maximiza AUC de validation usando el score prior-free
+común. Empates exactos: orden R,G,B,H,S,V. Se recorren las seis etapas,
+añadiendo una característica cada vez, incluso si el AUC disminuye.
+El subconjunto final maximiza AUC en esa trayectoria, con menor tamaño en
+empate. Solo después se elige Youden en validation con la convención común.
+Se conserva el modelo de training; no se reajusta sobre training+validation.
+
+`scripts/run_sfs.py` guarda los 21 candidatos, trayectoria de seis etapas,
+predicciones/métricas/ROC de validation y `decision.json` en
+`results/classification/bayes_sfs/`. La decisión incluye parámetros del
+modelo, orden de características, umbral y huellas del split y tabla de
+desarrollo. `scripts/verify_sfs.py` verifica ajuste, selección, determinismo,
+empates exactos, rechazo de filas test y correspondencia de artefactos.
+
+Validation se reutiliza para selección y umbral: sus resultados son de
+selección y pueden ser optimistas. La trayectoria greedy no examina todos
+los subconjuntos posibles. No se inspecciona ni regenera test.
+
+### Resultados SFS en validation
+
+| Etapa | Características en orden de adición | AUC validation |
+| --- | --- | ---: |
+| 1 | R | 0.833333 |
+| 2 | **R,B** | **0.972222** |
+| 3 | R,B,G | 0.888889 |
+| 4 | R,B,G,V | 0.861111 |
+| 5 | R,B,G,V,H | 0.833333 |
+| 6 | R,B,G,V,H,S | 0.777778 |
+
+Subconjunto congelado: **R,B**. Umbral: **0.31367556553904485**;
+Youden: **0.8333333333333334**.
+
+| Modelo | AUC | Exactitud | Sensibilidad | Especificidad | TN | FP | FN | TP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Manual R,G,S | 0.833333 | 0.833333 | 0.833333 | 0.833333 | 5 | 1 | 1 | 5 |
+| SFS R,B | 0.972222 | 0.916667 | 0.833333 | 1.000000 | 6 | 0 | 1 | 5 |
+
+SFS comparte R con la selección manual, añade B y excluye G,S. La
+justificación manual usa distribuciones del fruto de referencia en training;
+SFS evalúa combinaciones sobre colores del foreground predicho, ajustando
+GaussianNB en training y midiendo AUC en validation. Estas diferencias de
+criterio y representación, las dependencias entre colores y el pequeño
+conjunto de selección pueden explicar que no coincidan. La ventaja aquí
+observada no establece superioridad en test.
+
+Reproducción de esta etapa:
+
+```bash
+python3 scripts/run_sfs.py
+python3 -m compileall src scripts
+python3 scripts/verify_protocol.py
+python3 scripts/verify_sfs.py
+git diff --check
+```
+
+Las verificaciones incluyen los 21 ajustes sobre las filas exactas de
+training, AUC recalculados exclusivamente en validation, rechazo de una
+fila test sintética antes de ajustar, invariancia al orden de filas,
+empates exactos y casi-empates, y reconstrucción del modelo y umbral guardados.
+
+## Siguiente milestone
 
 Posteriormente: StandardScaler y PCA ajustados solo en training, número
 de componentes justificado por varianza explicada de training (PDF 3.6),
 GaussianNB en training y Youden en validation. Cuando manual, SFS y PCA
 estén congelados, abrir una única compuerta final de test y comparar los
-tres sin revisar decisiones a partir de ese resultado. SFS y PCA no están
-implementados en este milestone.
+tres sin revisar decisiones a partir de ese resultado. PCA no se implementa
+en este milestone.

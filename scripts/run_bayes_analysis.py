@@ -48,28 +48,29 @@ def validate_dataset(df: pd.DataFrame, split: pd.DataFrame, include_test: bool) 
 
 def save_evaluation(
     samples: pd.DataFrame, scores: np.ndarray, threshold: float, name: str,
+    *, features: list[str] = SELECTED_FEATURES, output_dir: Path = OUTPUT_DIR,
 ) -> None:
     y = samples["label"].to_numpy()
     metrics = evaluate_binary_classifier(y, scores, threshold)
     record = {
-        "dataset": name, "features": ",".join(SELECTED_FEATURES),
+        "dataset": name, "features": ",".join(features),
         "fit_partition": "training", "threshold_partition": "validation",
         "criterion": "Youden (largest finite threshold on ties)",
         **asdict(metrics),
     }
-    pd.DataFrame([record]).to_csv(OUTPUT_DIR / f"{name}_metrics.csv", index=False)
+    pd.DataFrame([record]).to_csv(output_dir / f"{name}_metrics.csv", index=False)
     output = samples[["image", "label", "split", "segmentation_jaccard",
-                      *SELECTED_FEATURES]].copy()
+                      *features]].copy()
     output["score"] = scores
     output["prediction"] = predict_with_threshold(scores, threshold)
     output["correct"] = output["prediction"] == output["label"]
-    output.to_csv(OUTPUT_DIR / f"{name}_predictions.csv", index=False)
+    output.to_csv(output_dir / f"{name}_predictions.csv", index=False)
 
     fpr, tpr, thresholds = roc_curve(
         y, scores, pos_label=POSITIVE_CLASS, drop_intermediate=False,
     )
     pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds}).to_csv(
-        OUTPUT_DIR / f"{name}_roc.csv", index=False,
+        output_dir / f"{name}_roc.csv", index=False,
     )
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.plot(fpr, tpr, label=f"{name} (AUC = {metrics.auc:.3f})")
@@ -77,13 +78,13 @@ def save_evaluation(
     ax.scatter([1 - metrics.specificity], [metrics.sensitivity],
                label="Umbral fijado en validation", zorder=5)
     role = "selección del umbral" if name == "validation" else "evaluación final"
-    ax.set(title=f"Bayes R,G,S — {name}: {role}",
+    ax.set(title=f"Bayes {','.join(features)} — {name}: {role}",
            xlabel="Tasa de falsos positivos", ylabel="Sensibilidad",
            xlim=(0, 1), ylim=(0, 1.05))
     ax.grid(alpha=0.2)
     ax.legend()
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / f"{name}_roc.png", dpi=200)
+    fig.savefig(output_dir / f"{name}_roc.png", dpi=200)
     plt.close(fig)
     print(pd.DataFrame([record]).to_string(index=False))
 
